@@ -1,4 +1,2 @@
-# Игнорировать файл hosts
 /ansible/hosts
-
 /ansible/common/files/id_rsa.pub
