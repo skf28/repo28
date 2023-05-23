@@ -1,0 +1,30 @@
+---
+
+- hosts: ubuntu.my
+  become: yes
+  tasks:
+
+    - name: install zabbix-agent
+      apt:
+        name: zabbix-agent
+        state: latest
+
+    - name: config zabbix-agent
+      template:
+        src: /etc/ansible/templates/zabbix_agentd.conf.t
+        dest: /etc/zabbix/zabbix_agentd.conf
+        owner: root
+        group: root
+        mode: 0644
+#      notify: restart zabbix-agent
+
+    - name: start zabbix-agent and enable
+      service:
+        name: zabbix-agent
+        state: started
+        enabled: yes
+        #  handlers:
+        #    - name: restart zabbix-agent
+        #      service:
+        #        name: zabbix-agent
+        #        state: restarted
