@@ -1,0 +1,14 @@
+---
+hostname: domain
+mysql_user: ...... # MySQL Role
+mysql_root_password: ...... # MySQL Role
+region: Europe/Moscow # Region set for PHP
+domain: domain # Postfix Role
+emailpass: changeme
+roundcube_name: "Roundcube Webmail" # Roundcube Role
+roundcube_src: https://github.com/roundcube/roundcubemail/releases/download/1.4.6/roundcubemail-1.4.6-complete.tar.gz # Roundcube Role
+roundcube_db: ...... # Roundcube Role
+roundcube_db_user: ...... # Roundcube Role
+roundcube_db_psss: ....... # Roundcube Role
+roundcube_des: ........... # Roundcube DES (NEEDS TO BE 24 CHAR)
+mailbox_password: ...........

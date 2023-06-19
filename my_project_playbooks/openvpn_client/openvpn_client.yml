@@ -1,0 +1,32 @@
+---
+- name: Install and configure OpenVPN client
+  hosts: web
+  become: true
+  vars:
+    vpn_server_ip: 10.0.0.1
+  tasks:
+    - name: Install openvpn and resolvconf
+      apt:
+        name:
+          - openvpn
+          - resolvconf
+        state: present
+  
+    - name: Copy OpenVPN client configuration files
+      copy:
+        src: /etc/openvpn/clients/clientvpn/client.conf
+        dest: /etc/openvpn/client.conf
+  
+    - name: Start OpenVPN service
+      systemd:
+        name: openvpn@client.service
+        enabled: yes
+        state: started
+
+    - name: Check OpenVPN connectivity
+      command: ping -c 5 {{ vpn_server_ip }}
+      register: vpn_ping
+      ignore_errors: yes
+
+    - debug:
+        var: vpn_ping.stdout_lines

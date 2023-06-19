@@ -1,0 +1,10 @@
+---
+#System Settings
+php_modules: [ 'php-curl', 'php-gd', 'php-mbstring', 'php-xml', 'php-xmlrpc', 'php-soap', 'php-intl', 'php-zip' ]
+
+#HTTP Settings
+http_host: "domain"
+http_conf: "domain.conf"
+http_port: "443"
+proxy_http_host: "......"
+proxy_http_port: "...."

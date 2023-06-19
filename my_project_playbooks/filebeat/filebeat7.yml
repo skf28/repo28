@@ -1,0 +1,15 @@
+---
+- hosts: web
+  become: yes
+  tasks:
+    - name: download filebeat
+      get_url:
+        url: https://www.techplanet.pro/d/filebeat-7.17.1-amd64.deb
+        dest: /tmp/filebeat-7.17.1-amd64.deb
+    - name: install filebeat
+      shell: dpkg -i /tmp/filebeat-7.17.1-amd64.deb
+    - name: start and enable service filebeat
+      ansible.builtin.service:
+        name: filebeat
+        state: started
+        enabled: yes

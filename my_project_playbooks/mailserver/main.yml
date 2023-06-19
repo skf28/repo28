@@ -1,0 +1,622 @@
+---
+
+
+- hosts: web.my
+
+  # Set Configuration Files
+
+  vars_files:
+    - global-vars/config.yml
+
+  become: yes
+  become_method: sudo
+
+  # Task Statement
+
+  tasks:
+
+
+    # Aptitude Update && Upgrade
+
+    - name: Update and Upgrade Aptitude Packages
+      apt:
+        update_cache: yes
+
+    # Install Packages
+
+    - name: Install Postfix
+      apt: name=postfix state=present
+
+
+    - name: Install Additional Dependencies
+      apt:
+        pkg:
+          - mysql-common #MySQL
+          - spamc #SpamAssassin
+          - php-pear #Roundcube
+          - php-gd #Roundcube
+          - php-mysql #Roundcube
+          - php-curl #Roundcube
+          - php-zip #Roundcube
+          - php-ldap #Roundcubei
+          - php-net-smtp
+          - php-gd
+          - php-mbstring #Roundcube
+          - php-imagick #Roundcube
+          - php7.4-intl #Roundcube
+          - php-xml #Roundcube
+          - php-dom
+          - dovecot-sieve #Sieve
+          - dovecot-managesieved #Sieve
+          - python-openssl #Letsencrypt
+          - php-imap #PostfixAdmin
+          - php-mbstring #PostfixAdmin
+          - php7.4-imap #PostfixAdmin
+          - php7.4-mbstring #PostfixAdmin
+          - unzip #System
+          - wget #System
+        state: present
+
+    - name: Install Python3-pip
+      apt: name=python3-pip state=present
+
+    - name: Install Python mySQL
+      command: pip3 install pymysql
+     
+    - name: Create /root/.my.cnf
+      file:
+        path: /root/.my.cnf
+        state: touch
+
+    - name: Insert into /root/.my.cnf
+      blockinfile:
+        path: /root/.my.cnf
+        block: |
+          [client]
+          user={{ mysql_user }}
+          password={{ mysql_root_password }}  
+
+    # PHP Configuration
+
+    - name: Enable Postfix Submission
+      replace:
+        path: /etc/php/7.4/apache2/php.ini
+        regexp: ';date.timezone ='
+        replace: 'date.timezone = {{ region }}'
+        backup: yes
+
+    # Postfix Configuration
+
+    - name: Change Postfix Hostname
+      shell: postconf -e 'myhostname = {{ domain }}'
+
+    - name: Changing local domains
+      replace:
+        path: /etc/postfix/main.cf
+        regexp: '^mydestination = .*'
+        replace: 'mydestination ='
+        backup: yes
+
+        #    - name: Adding mail delivery through Dovecot
+        # blockinfile:
+        # path: /etc/postfix/main.cf
+        # insertafter: EOF
+        # content: |
+        #  smtpd_sasl_auth_enable = yes
+        #  smtpd_sasl_type = dovecot
+        #  smtpd_sasl_path = private/auth
+        #  virtual_transport = lmtp:unix:private/dovecot-lmtp
+        #  virtual_mailbox_domains = /etc/postfix/virtual_mailbox_domains
+ 
+    - name: Create virtual_mailbox_domains
+      file:
+        path: /etc/postfix/virtual_mailbox_domains
+        state: touch
+        owner: root
+        group: root
+        mode: 0644
+    
+    - name: Add Domain 158.160.35.100.nip.io
+      lineinfile:
+        path: /etc/postfix/virtual_mailbox_domains
+        line: '158.160.35.100.nip.io ok'
+
+    - name: Apply Domain
+      shell: sudo postmap /etc/postfix/virtual_mailbox_domains    
+   
+    - name: Enable Postfix Submission
+      replace:
+        path: /etc/postfix/master.cf
+        regexp: '#submission inet n       -       y       -       -       smtpd'
+        replace: 'submission inet n       -       y       -       -       smtpd'
+        backup: yes
+
+    
+ # Install Dovecot   
+    - name: Install Dovecot
+      apt:
+        pkg:
+          # - postfix-mysql #Postfix
+          - dovecot-core  #Dovecot
+          - dovecot-imapd #Dovecot
+          - dovecot-pop3d #Dovecot
+          - dovecot-lmtpd #Dovecot
+
+
+ #Create Mail Location Folder
+    - name: Create Mail Location Folder
+      file:
+        path: /var/mail/vhosts/{{ domain }}
+        state: directory
+
+
+    - name: Create group "vmail"
+      shell: groupadd -g 5000 vmail
+
+    - name: Create user "vmail"
+      shell: useradd -r -g vmail -u 5000 vmail -d /var/mail/vhosts -c "virtual mail user"
+
+    - name: Set permissions for "vmail"
+      shell: chown -R vmail:vmail /var/mail/vhosts/
+
+#Dovecot Configuration
+
+    - name: Changing system authorization to passwdfile
+      lineinfile:
+        dest: /etc/dovecot/conf.d/10-auth.conf
+        state: absent
+        regexp: ".*auth-system.conf.ext"
+
+    - name: Changing system authorization to passwdfile
+      replace:
+        path: /etc/dovecot/conf.d/10-auth.conf
+        regexp: '^..include auth-passwdfile.conf.ext'
+        replace: '!include auth-passwdfile.conf.ext'
+        backup: yes
+   
+    - name: Allowing SSL connection
+      replace:
+        path: /etc/dovecot/conf.d/10-master.conf
+        regexp: '.*port = 993'
+        replace: 'port = 993\n    ssl = yes'
+        backup: yes
+
+    - name: Allowing SSL connection
+      replace:
+        path: /etc/dovecot/conf.d/10-master.conf
+        regexp: '.*port = 995'
+        replace: 'port = 995\n    ssl = yes'
+        backup: yes
+    
+    - name: Changing mail delivery from LMTP to Dovecot
+      replace:
+        path: /etc/dovecot/conf.d/10-master.conf
+        regexp: '.*unix_listener lmtp.*'
+        replace: 'unix_listener /var/spool/postfix/private/dovecot-lmtp {\n    mode = 0600\n    user = postfix\n    group = postfix'
+        backup: yes
+
+    - name: Adding SMTP Authorization
+      replace:
+        path: /etc/dovecot/conf.d/10-master.conf
+        regexp: '.*Postfix smtp-auth'
+        replace: '# Postfix smtp-auth\n  unix_listener /var/spool/postfix/private/auth {\n    mode = 0666\n    user = postfix\n    group = postfix\n }'
+        backup: yes
+
+    - name: Changing file-scheme and authorization format
+      replace:
+        path: /etc/dovecot/conf.d/auth-passwdfile.conf.ext
+        regexp: '.*args = scheme.*'
+        after: 'passdb.'
+        replace: 'args = scheme=PLAIN username_format=%u /etc/dovecot/dovecot-users'
+        backup: yes
+   
+    - name: Changing file-scheme and authorization format
+      replace:
+        path: /etc/dovecot/conf.d/auth-passwdfile.conf.ext
+        regexp: 'driver = passwd-file'
+        after: 'userdb.'
+        replace: 'driver = static'
+        backup: yes
+
+    - name: Changing file-scheme and authorization format
+      replace:
+        path: /etc/dovecot/conf.d/auth-passwdfile.conf.ext
+        regexp: '.*args = username_format.*'
+        replace: 'args = uid=vmail gid=vmail home=/var/mail/vhosts/%d/%n'
+        backup: yes
+
+    - name: Create dovecot-users
+      file:
+        path: /etc/dovecot/dovecot-users
+        state: touch
+        owner: root    
+        group: root
+        mode:  0644
+
+    - name: Adding Mail Boxes
+      blockinfile:
+        path: /etc/dovecot/dovecot-users
+        insertafter: EOF
+        content: |
+          admin@158.160.35.100.nip.io:Zaq1@wsxsquirrel
+          info@158.160.35.100.nip.io:Zaq1@wsxsquirrel 
+
+    - name: Changing Mail Box format to maildir
+      replace:
+        path: /etc/dovecot/conf.d/10-mail.conf
+        regexp: '^mail_location.*'
+        replace: 'mail_location = maildir:/var/mail/vhosts/%d/%n'
+        backup: yes
+
+    - name: Restart Service Postfix
+      service:
+        name: postfix
+        state: restarted
+    
+    - name: Restart Service Dovecot
+      service:
+        name: dovecot
+        state: restarted
+
+    - name: Install Roundcube Dependencies
+      apt:
+        pkg:
+          - php-net-smtp
+          - php-net-idna2
+          - php-mail-mime
+        state: present
+
+    - name: Creates directory
+      file:
+        path: /var/www/html/roundcube
+        state: directory
+
+    - name: Download Roundcube
+      shell: wget -qO- {{ roundcube_src }} | tar xvz -C /var/www/html/roundcube --strip 1
+
+    - name: Create Roundcube DB
+      mysql_db:
+        name: "{{ roundcube_db }}"
+        state: present
+
+    - name: Create Roundcube DB User
+      mysql_user: name={{ roundcube_db_user }} password={{ roundcube_db_psss }} priv=*.*:ALL state=present
+
+    - name: Grant Roundcube DB User Permissions
+      command:  mysql -u root --execute="GRANT ALL PRIVILEGES ON {{ roundcube_db }}.* TO '{{ roundcube_db_user }}'@'localhost';"
+
+    # Roundcube Conf
+
+    - name: Delete Roundcube Sample Config File
+      file:
+        path: /var/www/html/roundcube/config/config.inc.php
+        state: absent
+
+    - name: Configure Roundcube
+      template:
+        src: 'etc/roundcube/config.inc.php.j2'
+        dest: '/var/www/html/roundcube/config/config.inc.php'
+
+    # Roundcube Set Permissions
+
+    - name: Set Roundcube directory perms
+      shell: find /var/www/html/roundcube -type d -exec chmod 755 {} \;
+
+    - name: Set Roundcube file perms
+      shell: find /var/www/html/roundcube -type f -exec chmod 644 {} \;
+
+    - name: Change Roundcube folder ownership
+      shell: chown -R www-data:www-data /var/www/html/roundcube
+
+    #Install Antivirus ClamAV
+
+    - name: Install Clamav
+      apt: name=clamav state=present
+
+    - name: Install Additional Dependencies
+      apt:
+        pkg:
+          - clamav-daemon  #ClamAV
+          - clamsmtp       #ClamAV
+
+      # ClamAV Set Permissions  
+
+    - name: Change Clamsmtp folder ownership
+      shell: chown -R clamsmtp:clamsmtp /var/spool/clamsmtp
+        
+    - name: Change Clamsmtp folder ownership
+      shell: chown -R clamsmtp:clamsmtp /var/run/clamsmtp
+  
+    - name: Restart Service Clamsmtp
+      service:
+        name: clamsmtp
+        state: restarted
+      
+    - name: Configuration of Viruses Database Update
+      replace:
+        path: /etc/clamav/freshclam.conf
+        regexp: '# ScriptedUpdates yes'
+        replace: 'ScriptedUpdates no'
+        backup: yes   
+
+    - name: remove the line '#DatabaseMirror'
+      lineinfile:
+        path: /etc/clamav/freshclam.conf
+        regexp: 'DatabaseMirror.*'
+        state: absent   
+
+    - name: add site for clamav
+      lineinfile:
+       path: /etc/clamav/freshclam.conf
+       regexp: '^'
+       line: 'PrivateMirror https://tendence.ru/clamav'
+       state: present
+
+    - name: Downloading Viruses Databases main.cvd
+      shell: sudo -u clamav wget -P /var/lib/clamav/ https://techplanet.pro/clamav/main.cvd
+      
+    - name: Downloading Viruses Databases daily.cvd
+      shell: sudo -u clamav wget -P /var/lib/clamav/ https://techplanet.pro/clamav/daily.cvd
+
+    - name: Downloading Viruses Databases bytecode.cvd
+      shell: sudo -u clamav wget -P /var/lib/clamav/ https://techplanet.pro/clamav/bytecode.cvd        
+
+    - name: Restart Service clamav-freshclam.service
+      service:
+        name: clamav-freshclam.service
+        state: restarted
+    
+    - name: Restart Service clamav-daemon
+      service:
+        name: clamav-daemon
+        state: restarted
+   
+    - name: Adding Antivirus Scanning in Postfix and Adding mail delivery through Dovecot
+      blockinfile:
+        path: /etc/postfix/main.cf
+        insertafter: EOF
+        content: |
+          # Virusscanner      
+          content_filter = scan:127.0.0.1:10026
+          receive_override_options = no_address_mappings      
+          smtpd_sasl_auth_enable = yes
+          smtpd_sasl_type = dovecot
+          smtpd_sasl_path = private/auth
+          virtual_transport = lmtp:unix:private/dovecot-lmtp
+          virtual_mailbox_domains = /etc/postfix/virtual_mailbox_domains        
+          smtp_tls_note_starttls_offer = yes
+          smtpd_tls_loglevel = 1
+          smtpd_tls_received_header = yes
+ 
+
+    # INSTALL  SpamAssassin
+
+    - name: Install Spamassassin
+      apt:
+        pkg:
+           - spamassassin
+           - spamc
+
+    - name: Create Folder For SpamAssasssin
+      file:
+        path: /var/lib/spamassassin
+        state: directory
+
+    - name: Create group "spamd"
+      group:
+        name: spamd
+        state: present
+        gid: 5001
+
+    - name: Create user "spamd"
+      user:
+        name: spamd
+        shell: /sbin/nologin
+        groups: spamd
+        uid: 5001
+        append: yes
+        comment: "Spamd No Login"
+        state: present
+
+    - file: dest=/var/lib/spamassassin owner=spamd group=spamd mode=0777 recurse=yes
+
+    - name: Enable SpamAssassin
+      replace:
+        path: /etc/default/spamassassin
+        regexp: 'ENABLED=0'
+        replace: 'ENABLED=1'
+        backup: yes
+
+    - name: Change SpamAssassin Options
+      replace:
+        path: /etc/default/spamassassin
+        regexp: 'OPTIONS="--create-prefs --max-children 5 --helper-home-dir"'
+        replace: 'OPTIONS="--create-prefs --max-children 5 --username spamd --helper-home-dir /var/lib/spamassasin -s /var/lib/spamassassin/spamd.log"'
+        backup: yes
+
+    - name: Change SpamAssassin PIDFILE
+      replace:
+        path: /etc/default/spamassassin
+        regexp: 'PIDFILE="/var/run/spamd.pid"'
+        replace: 'PIDFILE="/var/lib/spamassassin/spamd.pid"'
+        backup: yes
+
+    - name: Enable SpamAssassin CRON
+      replace:
+        path: /etc/default/spamassassin
+        regexp: 'CRON=0'
+        replace: 'CRON=1'
+        backup: yes
+
+    - name: Change report-safe
+      replace:
+        path: /etc/spamassassin/local.cf
+        regexp: '# report_safe.*'
+        replace: 'report_safe 0'
+        backup: yes
+
+    - name: Enable SpamAssassin Bayes
+      replace:
+        path: /etc/spamassassin/local.cf
+        regexp: '# use_bayes 1'
+        replace: 'use_bayes 1'
+        backup: yes
+
+    - name: Enable SpamAssassin Auto Learn
+      replace:
+        path: /etc/spamassassin/local.cf
+        regexp: '# bayes_auto_learn 1'
+        replace: 'bayes_auto_learn 1'
+        backup: yes
+
+    - name: Enable SpamAssassin Ignore Header
+      replace:
+        path: /etc/spamassassin/local.cf
+        regexp: '# bayes_ignore_header'
+        replace: 'bayes_ignore_header'
+        backup: yes
+
+    - name: Change SpamAssassin SPAM header
+      replace:
+        path: /etc/spamassassin/local.cf
+        regexp: '# rewrite_header Subject \*\*\*\*\*SPAM\*\*\*\*\*'
+        replace: 'rewrite_header Subject [***** SPAM _SCORE_ *****]'
+        backup: yes
+
+    - name: Replace required score
+      replace:
+        path: /etc/spamassassin/local.cf
+        regexp: '# required_score.*'
+        replace: 'required_score 2.0'
+        backup: yes
+  
+    - name: Add block in File
+      blockinfile:
+        path: /etc/spamassassin/local.cf
+        block: |
+          use_bayes_rules              1
+          skip_rbl_checks              0
+          use_razor2                   0
+          use_dcc                      0
+          use_pyzor                    0
+        insertafter: required_score.*
+
+
+    - name: Enable SpamAssassin in Postfix
+      lineinfile:
+        path: /etc/postfix/master.cf
+        line: '   -o content_filter=spamassassin:dummy'
+        insertafter: smtp      inet  n       -       y       -       -       smtpd
+
+    - name: Enable SpamAssassin in Postfix EOF
+      blockinfile:
+        path: /etc/postfix/master.cf
+        insertafter: EOF
+        content: |
+          spamassassin unix -     n       n       -       -       pipe
+             user=spamd argv=/usr/bin/spamc -f -e /usr/sbin/sendmail -oi -f ${sender} ${recipient}
+
+    - name: Ensure SpamAssassin is running and starts on boot
+      service: name=spamassassin state=started enabled=true
+
+
+# Restart Services
+
+    - name: Restart Service Apache2
+      service:
+        name: apache2
+        state: restarted
+
+    - name: Restart Service SpamAssassin
+      service:
+        name: spamassassin
+        state: restarted
+
+    - name: Restart Service Postfix
+      service:
+        name: postfix
+        state: restarted
+
+    - name: Restart Service Dovecot
+      service:
+        name: dovecot
+        state: restarted
+
+    - name: Restart Service mySQL
+      service:
+        name: mysql
+        state: restarted
+     
+        # Making thr system more secure
+    - name: Making thr system more secure
+      blockinfile:
+        path: /etc/dovecot/conf.d/10-ssl.conf
+        insertbefore: BOF
+        content: |
+          ssl = required
+          ssl_protocols = !SSLv3
+          ssl_min_protocol = TLSv1.1
+        
+    - name: Restart Service Dovecot
+      service:
+        name: dovecot
+        state: restarted
+
+    # Install Sieve
+
+    - name: Enable Sieve plugin support for dovecot-lmtp
+      blockinfile:
+        path: /etc/dovecot/conf.d/20-lmtp.conf
+        insertbefore: '}'
+        content: |
+          postmaster_address = admin@{{ domain }}
+          mail_plugins = $mail_plugins sieve
+    - name: Delete Existing Dovecot 90-sieve.conf File
+      file:
+        state: absent
+        path: /etc/dovecot/conf.d/90-sieve.conf
+
+    - name: Create Dovecot 90-sieve.conf File
+      file:
+        path: /etc/dovecot/conf.d/90-sieve.conf
+        state: touch
+
+    - name: Create Sieve Dovecot plugin
+      blockinfile:
+        path: /etc/dovecot/conf.d/90-sieve.conf
+        insertbefore: EOF
+        content: |
+          plugin {
+             sieve = ~/.dovecot.sieve
+             sieve_global_path = /var/lib/dovecot/sieve/default.sieve
+             sieve_dir = ~/sieve
+             sieve_global_dir = /var/lib/dovecot/sieve/
+          }
+
+    - name: Restart Service Dovecot
+      service:
+        name: dovecot
+        state: restarted
+
+    - name: Adding Antivirus Scanning and  Enable SpamAssassin in Postfix EOF
+      blockinfile:
+        path: /etc/postfix/master.cf
+        insertafter: EOF
+        state: present
+        block: |
+          # Antivirus
+          scan unix - - n - 16 smtp
+                   -o smtp_send_xforward_command=yes
+          # For injecting mail back into postfix from the filter
+          127.0.0.1:10025 inet n - n - 16 smtpd
+                   -o content_filter=
+                   -o receive_override_options=no_unknown_recipient_checks,no_header_body_checks
+                   -o smtpd_helo_restrictions=
+                   -o smtpd_client_restrictions=
+                   -o smtpd_sender_restrictions=
+                   -o smtpd_recipient_restrictions=permit_mynetworks,reject
+                   -o mynetworks_style=host
+                   -o smtpd_authorized_xforward_hosts=127.0.0.0/8
+          spamassassin unix -     n       n       -       -       pipe
+             flags=DROhu  user=spamd argv=/usr/bin/spamc -f -e /usr/sbin/sendmail -oi -f ${sender} ${recipient}
+      

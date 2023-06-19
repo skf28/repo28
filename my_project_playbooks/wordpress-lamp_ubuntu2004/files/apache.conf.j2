@@ -1,0 +1,21 @@
+<VirtualHost *:{{ http_port }}>
+  ServerAdmin admin@localhost
+  ServerName www.{{ http_host }}
+  ServerAlias {{ http_host }} mail.{{ http_host }}
+  DocumentRoot /usr/share/wordpress
+  ErrorLog ${APACHE_LOG_DIR}/www.{{ http_host }}_error.log
+  CustomLog ${APACHE_LOG_DIR}/www.{{ http_host }}_access.log combined
+   <Directory /usr/share/wordpress>
+       Options FollowSymLinks
+       AllowOverride All
+       DirectoryIndex index.php
+       Order allow,deny
+       Allow from all
+   </Directory>
+   <Directory /usr/share/wordpress/wp-content>
+       Options FollowSymLinks
+       Order allow,deny
+       Allow from all
+   </Directory>
+</VirtualHost>
+
